@@ -6,7 +6,7 @@ const WLLAMA_VERSION = pkg.version
 const WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/esm/wasm/wllama.wasm`
 
 const QWEN_REPO = 'unsloth/Qwen3.5-0.8B-GGUF'
-const QWEN_FILE = 'Qwen3.5-0.8B-Q3_K_M.gguf'
+const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
 
 const VIBE_REPO = 'prithivMLmods/VibeThinker-3B-GGUF'
 const VIBE_FILE = 'VibeThinker-3B.Q4_K_M.gguf'

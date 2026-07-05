@@ -26,12 +26,10 @@ async function loadAndDownload(mm, url, config) {
 }
 
 export function useWllama() {
-  const wllamaRef = useRef(null)
-  const qwenRef = useRef(null)
   const [stage, setStage] = useState('idle')
   const [progress, setProgress] = useState(null)
   const [errorInfo, setErrorInfo] = useState(null)
-
+  const stageRef = useRef('idle')
   const downloadProgressRef = useRef(null)
 
   const setDownloadProgress = useCallback(({ loaded, total }) => {
@@ -39,112 +37,131 @@ export function useWllama() {
     downloadProgressRef.current?.(pct)
   }, [])
 
-  const stageRef = useRef('idle')
-
   const setStageSync = useCallback((s) => {
     stageRef.current = s
     setStage(s)
   }, [])
 
   const solve = useCallback(async ({ text, imageData, onToken }) => {
+    const QWEN_CTX = 512
+    const QWEN_BATCH = 64
+    let active = []
+
+    const cleanup = async () => {
+      for (const m of active) {
+        try { await m.exit() } catch {}
+      }
+      active = []
+    }
+
     try {
-      // --- Stage 1: Load Qwen, translate Korean → English ---
-      setStageSync('loading-qwen')
+      // ===== Stage 1: Qwen translate (Korean+image → English) =====
+      setStageSync('translate')
       setProgress('Qwen3.5 번역 모델 로딩 중...')
 
       const qwen = createWllamaInstance()
-      qwenRef.current = qwen
+      active.push(qwen)
 
       downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
       const modelUrl = `https://huggingface.co/${QWEN_REPO}/resolve/main/${QWEN_FILE}`
       const modelBlobs = await loadAndDownload(qwen.modelManager, modelUrl, { progressCallback: setDownloadProgress })
       downloadProgressRef.current = null
 
-      setProgress('mmproj 시각 모듈 다운로드 중...')
+      setProgress('mmproj 다운로드 중...')
       downloadProgressRef.current = (pct) => setProgress(`mmproj 다운로드 중... ${pct}%`)
       const mmprojUrl = `https://huggingface.co/${QWEN_REPO}/resolve/main/${QWEN_MMPROJ_FILE}`
       const mmprojBlobs = await loadAndDownload(qwen.modelManager, mmprojUrl, { progressCallback: setDownloadProgress })
       downloadProgressRef.current = null
 
-      setProgress('Qwen3.5 모델 로딩 중...')
-      await qwen.loadModel(modelBlobs, { n_ctx: 512, n_batch: 64, mmprojBlob: mmprojBlobs[0] })
+      setProgress('Qwen3.5 로딩 중...')
+      await qwen.loadModel(modelBlobs, { n_ctx: QWEN_CTX, n_batch: QWEN_BATCH, mmprojBlob: mmprojBlobs[0] })
 
-      setStageSync('translating')
-      setProgress('한국어→영어 번역 중...')
+      setProgress('번역 중...')
+      const translatePrompt = imageData && text
+        ? `Translate this Korean math problem to English. Image input unavailable—translate only the text. Return ONLY the English translation.\n\nKorean: ${text}`
+        : `Translate this Korean math problem to English. Return ONLY the English translation.\n\nKorean: ${text || ''}`
 
-      const userMsg = imageData && text
-        ? `Translate the following Korean math problem to English. The user also provided an image of the problem (image analysis not supported by WASM). Use only the Korean text. Return ONLY the English description.\n\nKorean: ${text}`
-        : `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations.\n\nKorean: ${text || ''}`
-
-      const translateMessages = [{ role: 'user', content: userMsg }]
       const englishPrompt = (await qwen.createChatCompletion(
-        translateMessages,
-        { max_tokens: 512, temperature: 0.1 }
+        [{ role: 'user', content: translatePrompt }],
+        { max_tokens: 256, temperature: 0.1 }
       )).trim()
 
-      // Unload Qwen
-      setProgress('Qwen3.5 메모리 해제 중...')
-      await qwen.exit()
+      await cleanup() // exit Qwen
 
-      // --- Stage 2: Load VibeThinker, generate Python code ---
-      setStageSync('loading-vibe')
-      setProgress('VibeThinker 수학 모델 로딩 중...')
+      // ===== Stage 2: VibeThinker solve (English → structured result) =====
+      setStageSync('solve')
+      setProgress('VibeThinker 모델 로딩 중...')
 
       const vibe = createWllamaInstance()
+      active.push(vibe)
+
       downloadProgressRef.current = (pct) => setProgress(`VibeThinker 다운로드 중... ${pct}%`)
       const vibeUrl = `https://huggingface.co/${VIBE_REPO}/resolve/main/${VIBE_FILE}`
       await vibe.loadModelFromUrl(vibeUrl, { n_ctx: 2048, progressCallback: setDownloadProgress })
       downloadProgressRef.current = null
 
-      wllamaRef.current = vibe
-      setStageSync('generating')
-      setProgress(null)
+      setProgress('문제 풀이 중...')
+      const vibeResult = (await vibe.createChatCompletion(
+        [{ role: 'user', content: `Solve the math problem. Output ONLY:
 
-      const systemPrompt = `You are a math expert. Solve the given math problem and output ONLY valid Python code.
-The code must:
-1. Store the final answer in a variable called "answer"
-2. Store the step-by-step solution (in Korean) in a variable called "solution"
-3. Use print() to output both: print(solution); print("ANSWER:", answer)
-4. Use only standard Python libraries
-5. Handle edge cases with try/except
-6. Output ONLY the raw Python code, no markdown fences or explanations`
+ANSWER: <final answer>
+STEPS: <brief key steps>
 
-      let fullCode = ''
-      const vibeMessages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: englishPrompt },
-      ]
-      const streamResponse = await vibe.createChatCompletion(
-        vibeMessages,
-        { max_tokens: 1024, temperature: 0.1, stream: true }
+No code. No markdown. Be concise.
+
+${englishPrompt}` }],
+        { max_tokens: 512, temperature: 0.1 }
+      )).trim()
+
+      await cleanup() // exit VibeThinker
+
+      // ===== Stage 3: Qwen finalize (cached reload, no mmproj, stream) =====
+      setStageSync('finalize')
+      setProgress('Qwen3.5 최종 해설 준비 중...')
+
+      const qwen2 = createWllamaInstance()
+      active.push(qwen2)
+
+      // Model cached in OPFS — fast reload, no mmproj needed for text-only
+      downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 로딩 중... ${pct}%`)
+      const modelUrl2 = `https://huggingface.co/${QWEN_REPO}/resolve/main/${QWEN_FILE}`
+      const modelBlobs2 = await loadAndDownload(qwen2.modelManager, modelUrl2, { progressCallback: setDownloadProgress })
+      downloadProgressRef.current = null
+
+      await qwen2.loadModel(modelBlobs2, { n_ctx: QWEN_CTX, n_batch: QWEN_BATCH })
+
+      setProgress('최종 해설 작성 중...')
+      const finalizePrompt = `다음 수학 문제의 풀이 과정과 답을 한국어로 간결하게 설명하세요.
+
+문제: ${text}
+풀이: ${vibeResult}
+
+형식:
+[풀이 과정]
+간단히 단계별 설명
+
+[최종 답]
+최종 답`
+
+      let fullText = ''
+      const stream = await qwen2.createChatCompletion(
+        [{ role: 'user', content: finalizePrompt }],
+        { max_tokens: 1024, temperature: 0.2, stream: true }
       )
-
-      for await (const chunk of streamResponse) {
-        fullCode = chunk.currentText || fullCode + (chunk.piece || '')
-        onToken?.(fullCode)
+      for await (const chunk of stream) {
+        fullText = chunk.currentText || (fullText + (chunk.piece || ''))
+        onToken?.(fullText)
       }
 
-      let code = fullCode.trim()
-      const codeMatch = code.match(/```(?:python)?\s*\n([\s\S]*?)```/)
-      if (codeMatch) code = codeMatch[1].trim()
-
-      await vibe.exit()
-      wllamaRef.current = null
+      await cleanup()
 
       setStageSync('ready')
       setProgress(null)
-      return code
+      return fullText.trim()
     } catch (err) {
+      await cleanup()
       const failedAt = stageRef.current
       console.error(`Wllama error (stage: ${failedAt}):`, err)
-      if (qwenRef.current) {
-        try { qwenRef.current.exit() } catch {}
-        qwenRef.current = null
-      }
-      if (wllamaRef.current) {
-        try { wllamaRef.current.exit() } catch {}
-        wllamaRef.current = null
-      }
       setErrorInfo({ stage: failedAt, message: err.message || String(err) })
       setStageSync('error')
       setProgress(null)
@@ -153,10 +170,6 @@ The code must:
   }, [setStageSync])
 
   const reset = useCallback(() => {
-    if (wllamaRef.current) {
-      try { wllamaRef.current.exit() } catch {}
-      wllamaRef.current = null
-    }
     setStage('idle')
     setProgress(null)
     setErrorInfo(null)

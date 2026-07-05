@@ -12,7 +12,6 @@
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.84",
     "@wllama/wllama": "^3.5.1",
-    "pyodide": "^314.0.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0"

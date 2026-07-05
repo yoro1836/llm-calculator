@@ -1,9 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { Wllama, LoggerWithoutDebug } from '@wllama/wllama'
-import pkg from '@wllama/wllama/package.json' with { type: 'json' }
-
-const WLLAMA_VERSION = pkg.version
-const WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/esm/wasm/wllama.wasm`
+import { Wllama, LoggerWithoutDebug } from '../vendor/wllama.js'
 
 const QWEN_REPO = 'unsloth/Qwen3.5-0.8B-GGUF'
 const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
@@ -11,7 +7,10 @@ const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
 const VIBE_REPO = 'prithivMLmods/VibeThinker-3B-GGUF'
 const VIBE_FILE = 'VibeThinker-3B.Q4_K_M.gguf'
 
-const CONFIG_PATHS = { default: WASM_URL }
+const CONFIG_PATHS = {
+  'single-thread/wllama.wasm': '/wllama/single-thread.wasm',
+  'multi-thread/wllama.wasm': '/wllama/multi-thread.wasm',
+}
 
 function createWllamaInstance() {
   return new Wllama(CONFIG_PATHS, {
@@ -52,7 +51,7 @@ export function useWllama() {
       downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
       await qwen.loadModelFromHF(
         { repo: QWEN_REPO, file: QWEN_FILE, mmprojFile: 'mmproj-BF16.gguf' },
-        { n_ctx: 2048, progressCallback: setDownloadProgress }
+        { n_ctx: 512, n_batch: 64, progressCallback: setDownloadProgress }
       )
       downloadProgressRef.current = null
 

@@ -47,13 +47,13 @@ export function useTransformer() {
     setProgress(null)
   }, [])
 
-  const generateCode = useCallback(async ({ text, imageData }) => {
+  const generateCode = useCallback(async ({ text, imageData, onToken }) => {
     const model = modelRef.current
     const processor = processorRef.current
     if (!model || !processor) throw new Error('Model not initialized')
 
     setStatus('generating')
-    setProgress('문제 분석 및 코드 생성 중...')
+    setProgress(null)
 
     const messages = [
       {
@@ -63,7 +63,7 @@ The code must:
 1. Store the final answer in a variable called "answer"
 2. Store the step-by-step solution (in Korean) in a variable called "solution"
 3. Use print() to output both: print(solution); print("ANSWER:", answer)
-4. Use only standard Python libraries (math, sympy not available)
+4. Use only standard Python libraries
 5. Handle edge cases with try/except
 6. Output ONLY the raw Python code, no markdown fences or explanations`,
       },
@@ -83,31 +83,36 @@ The code must:
       enable_thinking: false,
     })
 
-    const { RawImage } = await import('@huggingface/transformers')
+    const { RawImage, TextStreamer } = await import('@huggingface/transformers')
     const image = imageData ? await RawImage.fromURL(imageData) : null
 
     const inputs = await processor(prompt, image, null, {
       add_special_tokens: false,
     })
 
-    const outputs = await model.generate({
-      ...inputs,
-      max_new_tokens: 2048,
-      do_sample: false,
-      temperature: 0.1,
+    let fullText = ''
+    const streamer = new TextStreamer(processor.tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: (text) => {
+        fullText += text
+        onToken?.(fullText)
+      },
     })
 
-    const decoded = processor.batch_decode(
-      outputs.slice(null, [inputs.input_ids.dims.at(-1), null]),
-      { skip_special_tokens: true },
-    )
+    await model.generate({
+      ...inputs,
+      max_new_tokens: 1024,
+      do_sample: false,
+      temperature: 0.1,
+      streamer,
+    })
 
-    let code = decoded[0]?.trim() || ''
+    let code = fullText.trim()
     const codeMatch = code.match(/```(?:python)?\s*\n([\s\S]*?)```/)
     if (codeMatch) code = codeMatch[1].trim()
 
     setStatus('ready')
-    setProgress(null)
     return code
   }, [])
 

@@ -25,8 +25,12 @@ export default function App() {
 
       await transformer.init()
       transformer.setStatus('generating')
-      const generatedCode = await transformer.generateCode({ text, imageData })
-      setCode(generatedCode)
+
+      const generatedCode = await transformer.generateCode({
+        text,
+        imageData,
+        onToken: (partial) => setCode(partial),
+      })
 
       await pyodidePromise
 
@@ -49,7 +53,6 @@ export default function App() {
   }, [transformer])
 
   const isLoading = phase === 'loading'
-  const progressMsg = transformer.progress || pyodide.progress
 
   return (
     <div className="app">
@@ -63,10 +66,20 @@ export default function App() {
       <main className="app-main">
         <ProblemInput onSubmit={handleSolve} disabled={isLoading} />
 
-        {isLoading && (
+        {(phase === 'loading' || phase === 'result') && code && (
+          <div className="code-stream">
+            <div className="code-stream-header">
+              <span>🐍 생성된 코드</span>
+              {phase === 'loading' && <span className="streaming-dot" />}
+            </div>
+            <pre className="code-stream-content"><code>{code}</code></pre>
+          </div>
+        )}
+
+        {isLoading && !code && (
           <div className="loading-bar">
             <div className="loading-indeterminate" />
-            <p className="loading-text">{progressMsg || '처리 중...'}</p>
+            <p className="loading-text">{transformer.progress || pyodide.progress || '처리 중...'}</p>
           </div>
         )}
 

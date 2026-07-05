@@ -19,26 +19,26 @@ export function useTransformer() {
       Gemma4ForConditionalGeneration,
     } = await import('@huggingface/transformers')
 
-    const processor = await AutoProcessor.from_pretrained(MODEL_ID, {
-      progress_callback: (info) => {
-        if (info.status === 'progress') {
-          setProgress(`프로세서 로딩: ${Math.round(info.progress)}%`)
-        }
-      },
-    })
+    const onProgress = (info) => {
+      if (info.status === 'progress_total') {
+        setProgress(`다운로드 중... ${Math.round(info.progress)}%`)
+      } else if (info.status === 'progress' && info.file) {
+        const file = info.file.split('/').pop() || info.file
+        setProgress(`${file} (${Math.round(info.progress)}%)`)
+      } else if (info.text && info.text.includes('https://')) {
+        return
+      } else if (info.text) {
+        setProgress(info.text)
+      }
+    }
 
+    const processor = await AutoProcessor.from_pretrained(MODEL_ID, {
+      progress_callback: onProgress,
+    })
     const model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: 'q4f16',
       device: 'webgpu',
-      progress_callback: (info) => {
-        if (info.status === 'progress') {
-          setProgress(`모델 로딩: ${Math.round(info.progress)}%`)
-        } else if (info.status === 'progress_total') {
-          setProgress(`다운로드: ${Math.round(info.progress)}%`)
-        } else if (info.text) {
-          setProgress(info.text)
-        }
-      },
+      progress_callback: onProgress,
     })
 
     processorRef.current = processor

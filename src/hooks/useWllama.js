@@ -43,7 +43,7 @@ export function useWllama() {
       qwenRef.current = qwen
       downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
       await qwen.loadModelFromHF(
-        { repo: QWEN_REPO, file: QWEN_FILE },
+        { repo: QWEN_REPO, file: QWEN_FILE, mmprojFile: 'mmproj-BF16.gguf' },
         { n_ctx: 2048, progressCallback: setDownloadProgress }
       )
       downloadProgressRef.current = null
@@ -51,13 +51,21 @@ export function useWllama() {
       setStage('translating')
       setProgress('한국어→영어 번역 중...')
 
-      let translatePrompt = `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations, no code.\n\nKorean: ${text}`
+      let qwenContent
       if (imageData) {
-        translatePrompt = `A user uploaded a math problem image and provided a Korean text prompt. Combine the image content and the Korean text into a single English math problem description. Return ONLY the English description, no explanations.\n\nKorean text: ${text}`
+        // Convert base64 data URL to ArrayBuffer for wllama multimodal
+        const res = await fetch(imageData)
+        const buf = await res.arrayBuffer()
+        qwenContent = [
+          { type: 'text', text: `Translate the following Korean math problem to English. The user also provided an image of the problem. Combine what you see in the image with the Korean text into a single English math problem description. Return ONLY the English description, no explanations.\n\nKorean text: ${text}` },
+          { type: 'image', data: buf },
+        ]
+      } else {
+        qwenContent = `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations, no code.\n\nKorean: ${text}`
       }
 
       const translateResponse = await qwen.createChatCompletion({
-        messages: [{ role: 'user', content: translatePrompt }],
+        messages: [{ role: 'user', content: qwenContent }],
         max_tokens: 512,
         temperature: 0.1,
       })

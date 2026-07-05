@@ -1,4 +1,8 @@
 import { useState, useCallback, useRef } from 'react'
+import pyodidePkg from 'pyodide/package.json' with { type: 'json' }
+
+const PYODIDE_VERSION = pyodidePkg.version
+const PYODIDE_URL = `https://cdn.jsdelivr.net/npm/pyodide@${PYODIDE_VERSION}/full/`
 
 export function usePyodide() {
   const pyodideRef = useRef(null)
@@ -16,7 +20,7 @@ export function usePyodide() {
 
     const { loadPyodide } = await import('pyodide')
     const pyodide = await loadPyodide({
-      indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.2/full/',
+      indexURL: PYODIDE_URL,
     })
 
     pyodideRef.current = pyodide

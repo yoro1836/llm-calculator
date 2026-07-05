@@ -25,6 +25,7 @@ export function useWllama() {
   const qwenRef = useRef(null)
   const [stage, setStage] = useState('idle') // idle | loading-qwen | translating | loading-vibe | generating | ready | error
   const [progress, setProgress] = useState(null)
+  const [errorInfo, setErrorInfo] = useState(null) // { stage: string, message: string }
 
   const downloadProgressRef = useRef(null)
 
@@ -33,10 +34,17 @@ export function useWllama() {
     downloadProgressRef.current?.(pct)
   }, [])
 
+  const stageRef = useRef('idle')
+
+  const setStageSync = useCallback((s) => {
+    stageRef.current = s
+    setStage(s)
+  }, [])
+
   const solve = useCallback(async ({ text, imageData, onToken }) => {
     try {
       // --- Stage 1: Load Qwen, translate Korean → English ---
-      setStage('loading-qwen')
+      setStageSync('loading-qwen')
       setProgress('Qwen3.5 번역 모델 로딩 중...')
 
       const qwen = createWllamaInstance()
@@ -48,7 +56,7 @@ export function useWllama() {
       )
       downloadProgressRef.current = null
 
-      setStage('translating')
+      setStageSync('translating')
       setProgress('한국어→영어 번역 중...')
 
       let qwenContent
@@ -76,7 +84,7 @@ export function useWllama() {
       await qwen.exit()
 
       // --- Stage 2: Load VibeThinker, generate Python code ---
-      setStage('loading-vibe')
+      setStageSync('loading-vibe')
       setProgress('VibeThinker 수학 모델 로딩 중...')
 
       const vibe = createWllamaInstance()
@@ -88,7 +96,7 @@ export function useWllama() {
       downloadProgressRef.current = null
 
       wllamaRef.current = vibe
-      setStage('generating')
+      setStageSync('generating')
       setProgress(null)
 
       const systemPrompt = `You are a math expert. Solve the given math problem and output ONLY valid Python code.
@@ -124,11 +132,12 @@ The code must:
       await vibe.exit()
       wllamaRef.current = null
 
-      setStage('ready')
+      setStageSync('ready')
       setProgress(null)
       return code
     } catch (err) {
-      console.error('Wllama error:', err)
+      const failedAt = stageRef.current // capture current stage before we change it
+      console.error(`Wllama error (stage: ${failedAt}):`, err)
       // Cleanup both instances if still alive
       if (qwenRef.current) {
         try { qwenRef.current.exit() } catch {}
@@ -138,11 +147,12 @@ The code must:
         try { wllamaRef.current.exit() } catch {}
         wllamaRef.current = null
       }
-      setStage('error')
+      setErrorInfo({ stage: failedAt, message: err.message || String(err) })
+      setStageSync('error')
       setProgress(null)
       throw err
     }
-  }, [])
+  }, [setStageSync])
 
   const reset = useCallback(() => {
     if (wllamaRef.current) {
@@ -151,7 +161,8 @@ The code must:
     }
     setStage('idle')
     setProgress(null)
+    setErrorInfo(null)
   }, [])
 
-  return { stage, progress, solve, reset }
+  return { stage, progress, errorInfo, solve, reset }
 }

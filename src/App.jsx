@@ -12,8 +12,16 @@ const STAGE_LABELS = {
   'generating': 'Python 코드 생성 중...',
 }
 
+const STAGE_DISPLAY = {
+  'loading-qwen': '① Qwen3.5 모델 로딩',
+  'translating': '② 한국어→영어 번역',
+  'loading-vibe': '③ VibeThinker 모델 로딩',
+  'generating': '④ Python 코드 생성',
+}
+
 export default function App() {
   const wllama = useWllama()
+  const { stage: wllamaStage, progress: wllamaProgress, errorInfo: wllamaError } = wllama
   const pyodide = usePyodide()
 
   const [phase, setPhase] = useState('input')
@@ -59,7 +67,7 @@ export default function App() {
   }, [wllama])
 
   const isWorking = phase === 'loading'
-  const stageLabel = STAGE_LABELS[wllama.stage]
+  const stageLabel = STAGE_LABELS[wllamaStage]
 
   return (
     <div className="app">
@@ -77,7 +85,7 @@ export default function App() {
           <div className="code-stream">
             <div className="code-stream-header">
               <span>🐍 생성된 코드</span>
-              {wllama.stage === 'generating' && <span className="streaming-dot" />}
+              {wllamaStage === 'generating' && <span className="streaming-dot" />}
             </div>
             <pre className="code-stream-content"><code>{code}</code></pre>
           </div>
@@ -86,7 +94,7 @@ export default function App() {
         {isWorking && !code && (
           <div className="loading-bar">
             <div className="loading-indeterminate" />
-            <p className="loading-text">{wllama.progress || stageLabel || pyodide.progress || '처리 중...'}</p>
+            <p className="loading-text">{wllamaProgress || stageLabel || pyodide.progress || '처리 중...'}</p>
           </div>
         )}
 
@@ -99,8 +107,14 @@ export default function App() {
 
         {error && (
           <div className="error-banner">
-            <span>⚠️ {error}</span>
-            <button onClick={handleRetry}>다시 시도</button>
+            <div className="error-header">
+              <span className="error-icon">⚠️</span>
+              <span className="error-stage">
+                {wllamaError ? `${STAGE_DISPLAY[wllamaError.stage] || wllamaError.stage} 실패` : '오류 발생'}
+              </span>
+            </div>
+            <pre className="error-message">{error}</pre>
+            <button className="retry-btn" onClick={handleRetry}>다시 시도</button>
           </div>
         )}
 

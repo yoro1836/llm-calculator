@@ -278,20 +278,56 @@
   border-radius: var(--radius);
   padding: 16px 20px;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
   color: var(--error);
 }
 
-.error-banner button {
+.error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.error-icon {
+  font-size: 1.2rem;
+}
+
+.error-stage {
+  font-size: 0.95rem;
+}
+
+.error-message {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.error-banner .retry-btn {
+  align-self: flex-end;
   background: var(--error);
   color: white;
   border: none;
-  padding: 6px 16px;
+  padding: 8px 20px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-weight: 600;
   font-family: inherit;
+  transition: opacity 0.2s;
+}
+
+.error-banner .retry-btn:hover {
+  opacity: 0.85;
 }
 
 /* Solution Display */

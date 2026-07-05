@@ -51,7 +51,7 @@ export function useWllama() {
       downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
       await qwen.loadModelFromHF(
         { repo: QWEN_REPO, file: QWEN_FILE, mmprojFile: 'mmproj-BF16.gguf' },
-        { n_ctx: 512, n_batch: 64, progressCallback: setDownloadProgress }
+        { n_ctx: 512, n_batch: 64, reasoning: false, progressCallback: setDownloadProgress }
       )
       downloadProgressRef.current = null
 
@@ -75,6 +75,7 @@ export function useWllama() {
         messages: [{ role: 'user', content: qwenContent }],
         max_tokens: 512,
         temperature: 0.1,
+        chat_template_kwargs: { enable_thinking: false },
       })
       const englishPrompt = translateResponse.choices[0].message.content.trim()
 

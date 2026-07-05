@@ -72,24 +72,15 @@ export function useWllama() {
       setStageSync('translating')
       setProgress('한국어→영어 번역 중...')
 
-      let qwenContent
-      if (imageData) {
-        const res = await fetch(imageData)
-        const buf = await res.arrayBuffer()
-        qwenContent = [
-          { type: 'text', text: `Translate the following Korean math problem to English. The user also provided an image of the problem. Combine what you see in the image with the Korean text into a single English math problem description. Return ONLY the English description, no explanations.\n\nKorean text: ${text}` },
-          { type: 'image', data: buf },
-        ]
-      } else {
-        qwenContent = `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations, no code.\n\nKorean: ${text}`
-      }
+      const userMsg = imageData && text
+        ? `Translate the following Korean math problem to English. The user also provided an image of the problem (image analysis not supported by WASM). Use only the Korean text. Return ONLY the English description.\n\nKorean: ${text}`
+        : `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations.\n\nKorean: ${text || ''}`
 
-      const translateResponse = await qwen.createChatCompletion({
-        messages: [{ role: 'user', content: qwenContent }],
-        max_tokens: 512,
-        temperature: 0.1,
-      })
-      const englishPrompt = translateResponse.choices[0].message.content.trim()
+      const translateMessages = [{ role: 'user', content: userMsg }]
+      const englishPrompt = (await qwen.createChatCompletion(
+        translateMessages,
+        { max_tokens: 512, temperature: 0.1 }
+      )).trim()
 
       // Unload Qwen
       setProgress('Qwen3.5 메모리 해제 중...')
@@ -119,19 +110,17 @@ The code must:
 6. Output ONLY the raw Python code, no markdown fences or explanations`
 
       let fullCode = ''
-      const streamResponse = await vibe.createChatCompletion({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: englishPrompt },
-        ],
-        max_tokens: 1024,
-        temperature: 0.1,
-        stream: true,
-      })
+      const vibeMessages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: englishPrompt },
+      ]
+      const streamResponse = await vibe.createChatCompletion(
+        vibeMessages,
+        { max_tokens: 1024, temperature: 0.1, stream: true }
+      )
 
       for await (const chunk of streamResponse) {
-        const piece = chunk.choices?.[0]?.delta?.content || ''
-        fullCode += piece
+        fullCode = chunk.currentText || fullCode + (chunk.piece || '')
         onToken?.(fullCode)
       }
 

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { Wllama, LoggerWithoutDebug } from '../vendor/wllama.js'
+import { Wllama, LoggerWithoutDebug } from '@wllama/wllama'
 
 const QWEN_REPO = 'unsloth/Qwen3.5-0.8B-GGUF'
 const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'

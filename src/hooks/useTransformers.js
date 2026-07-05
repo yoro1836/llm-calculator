@@ -24,8 +24,13 @@ export function useTransformers() {
       dtype: 'q4',
       device: 'webgpu',
       progress_callback: (p) => {
-        if (p.status === 'progress' && p.progress > 0) {
-          setProgress(`${label} 다운로드 중... ${Math.round(p.progress * 100)}%`)
+        // progress_total: 0-100 percentage across all files (DefaultProgressCallback)
+        if (p.status === 'progress_total' && p.progress > 0) {
+          setProgress(`${label} 다운로드 중... ${Math.round(p.progress)}%`)
+        }
+        // fallback for raw per-file progress (0-100 already)
+        if (p.status === 'progress' && p.progress > 0 && typeof p.file === 'string') {
+          setProgress(`${label} 다운로드 중... ${Math.round(p.progress)}%`)
         }
       },
     })

@@ -2637,6 +2637,9 @@ var Wllama = class {
         name: `model-${i}.gguf`,
         blob
       }));
+      if (config.mmprojBlob) {
+        modelFiles.push({ name: 'mmproj.gguf', blob: config.mmprojBlob });
+      }
       yield this.proxy.moduleInit(modelFiles);
       const startResult = yield this.proxy.wllamaStart();
       if (!startResult.success) {
@@ -2656,6 +2659,7 @@ var Wllama = class {
         n_ctx_auto: false,
         // not supported for now
         model_paths: modelFiles.map((f) => `models/${f.name}`),
+        mmproj_path: config.mmprojBlob ? '/models/mmproj.gguf' : void 0,
         embeddings: config.embeddings,
         offload_kqv: config.offload_kqv,
         n_batch: config.n_batch,

@@ -1,13 +1,17 @@
 import { useState, useCallback, useRef } from 'react'
-import { Wllama, LoggerWithoutDebug } from '@wllama/wllama'
+import { Wllama, LoggerWithoutDebug } from '../vendor/wllama.js'
 
 const QWEN_REPO = 'unsloth/Qwen3.5-0.8B-GGUF'
 const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
+const QWEN_MMPROJ_FILE = 'mmproj-BF16.gguf'
 
 const VIBE_REPO = 'prithivMLmods/VibeThinker-3B-GGUF'
 const VIBE_FILE = 'VibeThinker-3B.Q4_K_M.gguf'
 
-const CONFIG_PATHS = { default: '/wllama/single-thread.wasm' }
+const CONFIG_PATHS = {
+  'single-thread/wllama.wasm': '/wllama/single-thread.wasm',
+  'multi-thread/wllama.wasm': '/wllama/multi-thread.wasm',
+}
 
 function createWllamaInstance() {
   return new Wllama(CONFIG_PATHS, {
@@ -16,12 +20,17 @@ function createWllamaInstance() {
   })
 }
 
+async function loadAndDownload(mm, url, config) {
+  const model = await mm.getModelOrDownload(url, config)
+  return model.open()
+}
+
 export function useWllama() {
   const wllamaRef = useRef(null)
   const qwenRef = useRef(null)
-  const [stage, setStage] = useState('idle') // idle | loading-qwen | translating | loading-vibe | generating | ready | error
+  const [stage, setStage] = useState('idle')
   const [progress, setProgress] = useState(null)
-  const [errorInfo, setErrorInfo] = useState(null) // { stage: string, message: string }
+  const [errorInfo, setErrorInfo] = useState(null)
 
   const downloadProgressRef = useRef(null)
 
@@ -45,19 +54,26 @@ export function useWllama() {
 
       const qwen = createWllamaInstance()
       qwenRef.current = qwen
+
       downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
-      await qwen.loadModelFromHF(
-        { repo: QWEN_REPO, file: QWEN_FILE, mmprojFile: 'mmproj-BF16.gguf' },
-        { n_ctx: 512, n_batch: 64, reasoning: false, progressCallback: setDownloadProgress }
-      )
+      const modelUrl = `https://huggingface.co/${QWEN_REPO}/resolve/main/${QWEN_FILE}`
+      const modelBlobs = await loadAndDownload(qwen.modelManager, modelUrl, { progressCallback: setDownloadProgress })
       downloadProgressRef.current = null
+
+      setProgress('mmproj 시각 모듈 다운로드 중...')
+      downloadProgressRef.current = (pct) => setProgress(`mmproj 다운로드 중... ${pct}%`)
+      const mmprojUrl = `https://huggingface.co/${QWEN_REPO}/resolve/main/${QWEN_MMPROJ_FILE}`
+      const mmprojBlobs = await loadAndDownload(qwen.modelManager, mmprojUrl, { progressCallback: setDownloadProgress })
+      downloadProgressRef.current = null
+
+      setProgress('Qwen3.5 모델 로딩 중...')
+      await qwen.loadModel(modelBlobs, { n_ctx: 512, n_batch: 64, mmprojBlob: mmprojBlobs[0] })
 
       setStageSync('translating')
       setProgress('한국어→영어 번역 중...')
 
       let qwenContent
       if (imageData) {
-        // Convert base64 data URL to ArrayBuffer for wllama multimodal
         const res = await fetch(imageData)
         const buf = await res.arrayBuffer()
         qwenContent = [
@@ -72,7 +88,6 @@ export function useWllama() {
         messages: [{ role: 'user', content: qwenContent }],
         max_tokens: 512,
         temperature: 0.1,
-        chat_template_kwargs: { enable_thinking: false },
       })
       const englishPrompt = translateResponse.choices[0].message.content.trim()
 
@@ -86,10 +101,8 @@ export function useWllama() {
 
       const vibe = createWllamaInstance()
       downloadProgressRef.current = (pct) => setProgress(`VibeThinker 다운로드 중... ${pct}%`)
-      await vibe.loadModelFromHF(
-        { repo: VIBE_REPO, file: VIBE_FILE },
-        { n_ctx: 2048, progressCallback: setDownloadProgress }
-      )
+      const vibeUrl = `https://huggingface.co/${VIBE_REPO}/resolve/main/${VIBE_FILE}`
+      await vibe.loadModelFromUrl(vibeUrl, { n_ctx: 2048, progressCallback: setDownloadProgress })
       downloadProgressRef.current = null
 
       wllamaRef.current = vibe
@@ -133,9 +146,8 @@ The code must:
       setProgress(null)
       return code
     } catch (err) {
-      const failedAt = stageRef.current // capture current stage before we change it
+      const failedAt = stageRef.current
       console.error(`Wllama error (stage: ${failedAt}):`, err)
-      // Cleanup both instances if still alive
       if (qwenRef.current) {
         try { qwenRef.current.exit() } catch {}
         qwenRef.current = null

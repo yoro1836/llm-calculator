@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import ProblemInput from './components/ProblemInput'
 import SolutionDisplay from './components/SolutionDisplay'
-import { useWllama } from './hooks/useWllama'
+import { useTransformers } from './hooks/useTransformers'
 import './App.css'
 
 const STAGE_LABELS = {
@@ -11,14 +11,14 @@ const STAGE_LABELS = {
 }
 
 const STAGE_DISPLAY = {
-  'translate': '① Qwen3.5 번역',
-  'solve': '② VibeThinker 풀이',
-  'finalize': '③ Qwen3.5 해설',
+  'translate': '① Qwen3.5 (ONNX) 번역',
+  'solve': '② VibeThinker (ONNX) 풀이',
+  'finalize': '③ Qwen3.5 (ONNX) 해설',
 }
 
 export default function App() {
-  const wllama = useWllama()
-  const { stage: wllamaStage, progress: wllamaProgress, errorInfo: wllamaError } = wllama
+  const tf = useTransformers()
+  const { stage, progress, errorInfo } = tf
 
   const [phase, setPhase] = useState('input')
   const [explanation, setExplanation] = useState('')
@@ -30,7 +30,7 @@ export default function App() {
       setError(null)
       setExplanation('')
 
-      await wllama.solve({
+      await tf.solve({
         text,
         imageData,
         onToken: (partial) => setExplanation(partial),
@@ -42,24 +42,24 @@ export default function App() {
       setError(err.message)
       setPhase('error')
     }
-  }, [wllama])
+  }, [tf])
 
   const handleRetry = useCallback(() => {
     setPhase('input')
     setExplanation('')
     setError(null)
-    wllama.reset()
-  }, [wllama])
+    tf.reset()
+  }, [tf])
 
   const isWorking = phase === 'loading'
-  const stageLabel = STAGE_LABELS[wllamaStage]
+  const stageLabel = STAGE_LABELS[stage]
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>🤖 AI Math Solver</h1>
         <p className="subtitle">
-          Qwen3.5 + VibeThinker-3B 기반 브라우저 내장 AI 계산기
+          Qwen3.5 0.8B + VibeThinker 3B (ONNX) 기반 브라우저 내장 AI 계산기
         </p>
       </header>
 
@@ -79,7 +79,7 @@ export default function App() {
         {isWorking && !explanation && (
           <div className="loading-bar">
             <div className="loading-indeterminate" />
-            <p className="loading-text">{wllamaProgress || stageLabel || '처리 중...'}</p>
+            <p className="loading-text">{progress || stageLabel || '처리 중...'}</p>
           </div>
         )}
 
@@ -88,7 +88,7 @@ export default function App() {
             <div className="error-header">
               <span className="error-icon">⚠️</span>
               <span className="error-stage">
-                {wllamaError ? `${STAGE_DISPLAY[wllamaError.stage] || wllamaError.stage} 실패` : '오류 발생'}
+                {errorInfo ? `${STAGE_DISPLAY[errorInfo.stage] || errorInfo.stage} 실패` : '오류 발생'}
               </span>
             </div>
             <pre className="error-message">{error}</pre>
@@ -108,7 +108,7 @@ export default function App() {
           모델 다운로드에 시간이 소요될 수 있습니다 (최초 1회).
         </p>
         <p className="footer-tech">
-          Qwen3.5-0.8B + VibeThinker-3B (GGUF / wllama) + React
+          Qwen3.5-0.8B + VibeThinker-3B (ONNX / Transformers.js) + React
         </p>
       </footer>
     </div>

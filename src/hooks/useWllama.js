@@ -7,10 +7,7 @@ const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
 const VIBE_REPO = 'prithivMLmods/VibeThinker-3B-GGUF'
 const VIBE_FILE = 'VibeThinker-3B.Q4_K_M.gguf'
 
-const CONFIG_PATHS = {
-  'single-thread/wllama.wasm': '/wllama/single-thread.wasm',
-  'multi-thread/wllama.wasm': '/wllama/multi-thread.wasm',
-}
+const CONFIG_PATHS = { default: '/wllama/single-thread.wasm' }
 
 function createWllamaInstance() {
   return new Wllama(CONFIG_PATHS, {

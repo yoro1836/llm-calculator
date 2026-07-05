@@ -1,0 +1,149 @@
+import { useState, useCallback, useRef } from 'react'
+import { Wllama, LoggerWithoutDebug } from '@wllama/wllama'
+import pkg from '@wllama/wllama/package.json' with { type: 'json' }
+
+const WLLAMA_VERSION = pkg.version
+const WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/esm/wasm/wllama.wasm`
+
+const QWEN_REPO = 'unsloth/Qwen3.5-0.8B-GGUF'
+const QWEN_FILE = 'Qwen3.5-0.8B-UD-Q3_K_XL.gguf'
+
+const VIBE_REPO = 'prithivMLmods/VibeThinker-3B-GGUF'
+const VIBE_FILE = 'VibeThinker-3B.Q4_K_M.gguf'
+
+const CONFIG_PATHS = { default: WASM_URL }
+
+function createWllamaInstance() {
+  return new Wllama(CONFIG_PATHS, {
+    logger: LoggerWithoutDebug,
+    parallelDownloads: 4,
+  })
+}
+
+export function useWllama() {
+  const wllamaRef = useRef(null)
+  const qwenRef = useRef(null)
+  const [stage, setStage] = useState('idle') // idle | loading-qwen | translating | loading-vibe | generating | ready | error
+  const [progress, setProgress] = useState(null)
+
+  const downloadProgressRef = useRef(null)
+
+  const setDownloadProgress = useCallback(({ loaded, total }) => {
+    const pct = Math.round((loaded / total) * 100)
+    downloadProgressRef.current?.(pct)
+  }, [])
+
+  const solve = useCallback(async ({ text, imageData, onToken }) => {
+    try {
+      // --- Stage 1: Load Qwen, translate Korean → English ---
+      setStage('loading-qwen')
+      setProgress('Qwen3.5 번역 모델 로딩 중...')
+
+      const qwen = createWllamaInstance()
+      qwenRef.current = qwen
+      downloadProgressRef.current = (pct) => setProgress(`Qwen3.5 다운로드 중... ${pct}%`)
+      await qwen.loadModelFromHF(
+        { repo: QWEN_REPO, file: QWEN_FILE },
+        { n_ctx: 2048, progressCallback: setDownloadProgress }
+      )
+      downloadProgressRef.current = null
+
+      setStage('translating')
+      setProgress('한국어→영어 번역 중...')
+
+      let translatePrompt = `Translate the following Korean math problem to English. Return ONLY the English translation, no explanations, no code.\n\nKorean: ${text}`
+      if (imageData) {
+        translatePrompt = `A user uploaded a math problem image and provided a Korean text prompt. Combine the image content and the Korean text into a single English math problem description. Return ONLY the English description, no explanations.\n\nKorean text: ${text}`
+      }
+
+      const translateResponse = await qwen.createChatCompletion({
+        messages: [{ role: 'user', content: translatePrompt }],
+        max_tokens: 512,
+        temperature: 0.1,
+      })
+      const englishPrompt = translateResponse.choices[0].message.content.trim()
+
+      // Unload Qwen
+      setProgress('Qwen3.5 메모리 해제 중...')
+      await qwen.exit()
+
+      // --- Stage 2: Load VibeThinker, generate Python code ---
+      setStage('loading-vibe')
+      setProgress('VibeThinker 수학 모델 로딩 중...')
+
+      const vibe = createWllamaInstance()
+      downloadProgressRef.current = (pct) => setProgress(`VibeThinker 다운로드 중... ${pct}%`)
+      await vibe.loadModelFromHF(
+        { repo: VIBE_REPO, file: VIBE_FILE },
+        { n_ctx: 2048, progressCallback: setDownloadProgress }
+      )
+      downloadProgressRef.current = null
+
+      wllamaRef.current = vibe
+      setStage('generating')
+      setProgress(null)
+
+      const systemPrompt = `You are a math expert. Solve the given math problem and output ONLY valid Python code.
+The code must:
+1. Store the final answer in a variable called "answer"
+2. Store the step-by-step solution (in Korean) in a variable called "solution"
+3. Use print() to output both: print(solution); print("ANSWER:", answer)
+4. Use only standard Python libraries
+5. Handle edge cases with try/except
+6. Output ONLY the raw Python code, no markdown fences or explanations`
+
+      let fullCode = ''
+      const streamResponse = await vibe.createChatCompletion({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: englishPrompt },
+        ],
+        max_tokens: 1024,
+        temperature: 0.1,
+        stream: true,
+      })
+
+      for await (const chunk of streamResponse) {
+        const piece = chunk.choices?.[0]?.delta?.content || ''
+        fullCode += piece
+        onToken?.(fullCode)
+      }
+
+      let code = fullCode.trim()
+      const codeMatch = code.match(/```(?:python)?\s*\n([\s\S]*?)```/)
+      if (codeMatch) code = codeMatch[1].trim()
+
+      await vibe.exit()
+      wllamaRef.current = null
+
+      setStage('ready')
+      setProgress(null)
+      return code
+    } catch (err) {
+      console.error('Wllama error:', err)
+      // Cleanup both instances if still alive
+      if (qwenRef.current) {
+        try { qwenRef.current.exit() } catch {}
+        qwenRef.current = null
+      }
+      if (wllamaRef.current) {
+        try { wllamaRef.current.exit() } catch {}
+        wllamaRef.current = null
+      }
+      setStage('error')
+      setProgress(null)
+      throw err
+    }
+  }, [])
+
+  const reset = useCallback(() => {
+    if (wllamaRef.current) {
+      try { wllamaRef.current.exit() } catch {}
+      wllamaRef.current = null
+    }
+    setStage('idle')
+    setProgress(null)
+  }, [])
+
+  return { stage, progress, solve, reset }
+}

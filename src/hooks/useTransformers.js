@@ -21,8 +21,13 @@ export function useTransformers() {
     if (ref.current) return ref.current
     setProgress(`${label} 모델 로딩 중...`)
     const pipe = await pipeline('text-generation', modelId, {
-      device: 'webgpu',
-      subfolder: '',
+      ...(modelId === VIBE_MODEL ? {
+        device: 'webgpu',
+        subfolder: '',
+      } : {
+        dtype: 'q4',
+        device: 'webgpu',
+      }),
       progress_callback: (p) => {
         // progress_total: 0-100 percentage across all files (DefaultProgressCallback)
         if (p.status === 'progress_total' && p.progress > 0) {
